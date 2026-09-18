@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>ALASTOR STRIKE FPS</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  overflow:hidden;
+  background:#000;
+  font-family:Arial,sans-serif;
+  touch-action:none;
+}
+#game{width:100vw;height:100vh;display:block}
+
+#hud{
+  position:fixed;
+  top:15px;
+  left:15px;
+  color:white;
+  font-size:18px;
+  z-index:5;
+  text-shadow:2px 2px #000;
+}
+
+#crosshair{
+  position:fixed;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  color:white;
+  font-size:30px;
+  z-index:5;
+}
+
+button{
+  color:white;
+  background:rgba(30,30,30,.7);
+  border:2px solid white;
+  border-radius:50%;
+  width:70px;
+  height:70px;
+  font-weight:bold;
+  touch-action:none;
+}
+
+#fire{
+  position:fixed;
+  right:25px;
+  bottom:35px;
+  width:85px;
+  height:85px;
+  background:rgba(180,0,0,.65);
+}
+
+#reload{
+  position:fixed;
+  right:125px;
+  bottom:45px;
+}
+
+#jump{
+  position:fixed;
+  right:25px;
+  bottom:135px;
+}
+
+#joystick{
+  position:fixed;
+  left:25px;
+  bottom:35px;
+  width:120px;
+  height:120px;
+  border:2px solid white;
+  border-radius:50%;
+  background:rgba(255,255,255,.1);
+}
+
+#stick{
+  position:absolute;
+  left:35px;
+  top:35px;
+  width:50px;
+  height:50px;
+  border-radius:50%;
+  background:rgba(255,255,255,.45);
+}
+</style>
+</head>
+
+<body>
+
+<div id="hud">
+❤️ HP: <span id="hp">100</span><br>
+🔫 AMMO: <span id="ammo">30</span>/120<br>
+🎯 KILLS: <span id="kills">0</span>
+</div>
+
+<div id="crosshair">+</div>
+
+<div id="joystick">
+  <div id="stick"></div>
+</div>
+
+<button id="fire">FIRE</button>
+<button id="reload">R</button>
+<button id="jump">JUMP</button>
+
+<canvas id="game"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+
+const canvas=document.getElementById("game");
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x78909c);
+scene.fog=new THREE.Fog(0x78909c,20,100);
+
+const camera=new THREE.PerspectiveCamera(
+  75,
+  innerWidth/innerHeight,
+  .1,
+  500
+);
+
+camera.position.set(0,2,10);
+
+const renderer=new THREE.WebGLRenderer({
+  canvas:canvas,
+  antialias:true
+});
+
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+
+/* LIGHT */
+
+const sun=new THREE.DirectionalLight(0xffffff,2);
+sun.position.set(10,20,10);
+scene.add(sun);
+
+scene.add(
+  new THREE.AmbientLight(0xffffff,.5)
+);
+
+/* GROUND */
+
+const ground=new THREE.Mesh(
+  new THREE.PlaneGeometry(200,200),
+  new THREE.MeshStandardMaterial({color:0x30352f})
+);
+
+ground.rotation.x=-Math.PI/2;
+scene.add(ground);
+
+/* BUILDINGS */
+
+function building(x,z,w,h,d){
+
+  const b=new THREE.Mesh(
+    new THREE.BoxGeometry(w,h,d),
+    new THREE.MeshStandardMaterial({
+      color:0x555555
+    })
+  );
+
+  b.position.set(x,h/2,z);
+  scene.add(b);
+}
+
+building(-12,-15,8,8,8);
+building(12,-15,8,10,8);
+building(-15,12,7,6,7);
+building(15,12,7,8,7);
+
+/* CRATES */
+
+function crate(x,z){
+
+  const c=new THREE.Mesh(
+    new THREE.BoxGeometry(2,2,2),
+    new THREE.MeshStandardMaterial({
+      color:0x76552d
+    })
+  );
+
+  c.position.set(x,1,z);
+  scene.add(c);
+}
+
+crate(-4,-5);
+crate(4,-8);
+crate(-7,3);
+crate(8,5);
+
+/* PLAYER */
+
+let hp=100;
+let ammo=30;
+let reserve=120;
+let kills=0;
+
+let velocityY=0;
+let grounded=true;
+
+/* ENEMIES */
+
+let enemies=[];
+
+function spawnEnemy(x,z){
+
+  const body=new THREE.Mesh(
+    new THREE.BoxGeometry(1.2,2,1),
+    new THREE.MeshStandardMaterial({
+      color:0x9b2020
+    })
+  );
+
+  body.position.set(x,1,z);
+
+  body.userData.health=100;
+
+  scene.add(body);
+  enemies.push(body);
+}
+
+spawnEnemy(0,-25);
+spawnEnemy(8,-30);
+spawnEnemy(-8,-32);
+spawnEnemy(15,-40);
+spawnEnemy(-15,-40);
+
+/* SHOOT */
+
+function shoot(){
+
+  if(ammo<=0)return;
+
+  ammo--;
+
+  document.getElementById("ammo").textContent=
+    ammo+"/"+reserve;
+
+  const ray=new THREE.Raycaster();
+
+  ray.setFromCamera(
+    new THREE.Vector2(0,0),
+    camera
+  );
+
+  const hits=ray.intersectObjects(enemies);
+
+  if(hits.length){
+
+    const enemy=hits[0].object;
+
+    enemy.userData.health-=50;
+
+    if(enemy.userData.health<=0){
+
+      scene.remove(enemy);
+
+      enemies=enemies.filter(
+        e=>e!==enemy
+      );
+
+      kills++;
+
+      document.getElementById("kills")
+        .textContent=kills;
+    }
+  }
+
+  /* RECOIL */
+
+  camera.rotation.x-=0.025;
+
+  setTimeout(()=>{
+    camera.rotation.x+=0.025;
+  },80);
+}
+
+document.getElementById("fire")
+.addEventListener("pointerdown",shoot);
+
+/* RELOAD */
+
+function reload(){
+
+  if(ammo===30 || reserve<=0)return;
+
+  const needed=30-ammo;
+  const amount=Math.min(needed,reserve);
+
+  ammo+=amount;
+  reserve-=amount;
+
+  document.getElementById("ammo")
+    .textContent=ammo+"/"+reserve;
+}
+
+document.getElementById("reload")
+.addEventListener("pointerdown",reload);
+
+/* JUMP */
+
+document.getElementById("jump")
+.addEventListener("pointerdown",()=>{
+
+  if(grounded){
+    velocityY=.16;
+    grounded=false;
+  }
+
+});
+
+/* JOYSTICK */
+
+const joystick=document.getElementById("joystick");
+const stick=document.getElementById("stick");
+
+let moving=false;
+let moveX=0;
+let moveY=0;
+
+joystick.addEventListener("pointerdown",e=>{
+  moving=true;
+  joystick.setPointerCapture(e.pointerId);
+});
+
+joystick.addEventListener("pointermove",e=>{
+
+  if(!moving)return;
+
+  const r=joystick.getBoundingClientRect();
+
+  let x=e.clientX-(r.left+r.width/2);
+  let y=e.clientY-(r.top+r.height/2);
+
+  const max=45;
+
+  x=Math.max(-max,Math.min(max,x));
+  y=Math.max(-max,Math.min(max,y));
+
+  stick.style.left=(35+x)+"px";
+  stick.style.top=(35+y)+"px";
+
+  moveX=x/max;
+  moveY=y/max;
+
+});
+
+joystick.addEventListener("pointerup",()=>{
+
+  moving=false;
+  moveX=0;
+  moveY=0;
+
+  stick.style.left="35px";
+  stick.style.top="35px";
+});
+
+/* LOOK AROUND */
+
+let looking=false;
+let lastX=0;
+
+window.addEventListener("pointerdown",e=>{
+
+  if(e.clientX>innerWidth/2 &&
+     e.clientY<innerHeight-150){
+
+    looking=true;
+    lastX=e.clientX;
+  }
+
+});
+
+window.addEventListener("pointermove",e=>{
+
+  if(!looking)return;
+
+  const dx=e.clientX-lastX;
+
+  camera.rotation.y-=dx*.004;
+
+  lastX=e.clientX;
+
+});
+
+window.addEventListener("pointerup",()=>{
+  looking=false;
+});
+
+/* GAME LOOP */
+
+function animate(){
+
+  requestAnimationFrame(animate);
+
+  /* MOVEMENT */
+
+  if(moving){
+
+    const speed=.09;
+
+    camera.translateZ(moveY*speed);
+    camera.translateX(moveX*speed);
+  }
+
+  /* GRAVITY */
+
+  velocityY-=.006;
+
+  camera.position.y+=velocityY;
+
+  if(camera.position.y<=2){
+
+    camera.position.y=2;
+    velocityY=0;
+    grounded=true;
+  }
+
+  /* ENEMY AI */
+
+  enemies.forEach(enemy=>{
+
+    const dx=camera.position.x-enemy.position.x;
+    const dz=camera.position.z-enemy.position.z;
+
+    const distance=Math.sqrt(dx*dx+dz*dz);
+
+    if(distance>2){
+
+      enemy.position.x+=dx/distance*.01;
+      enemy.position.z+=dz/distance*.01;
+
+    }else{
+
+      hp-=.03;
+
+      hp=Math.max(0,hp);
+
+      document.getElementById("hp")
+        .textContent=Math.floor(hp);
+
+      if(hp<=0){
+
+        alert(
+          "MISSION FAILED\nKills: "+kills
+        );
+
+        location.reload();
+      }
+    }
+
+  });
+
+  renderer.render(scene,camera);
+}
+
+animate();
+
+/* RESIZE */
+
+window.addEventListener("resize",()=>{
+
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+
+  renderer.setSize(
+    innerWidth,
+    innerHeight
+  );
+
+});
+
+</script>
+
+</body>
+</html>
